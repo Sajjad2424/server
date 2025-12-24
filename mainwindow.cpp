@@ -21,7 +21,6 @@
 #include "QSpinBox"
 #include "QButtonGroup"
 #include "QIntValidator"
-#include <QRegularExpressionValidator>
 
 
 QDataStream &operator<<(QDataStream &out, const dataStruct &data)
@@ -59,19 +58,14 @@ MainWindow::MainWindow(QWidget *parent)
     QIntValidator *portValidator = new QIntValidator();
     portValidator->setRange(1,65535);
 
-    // QString ipRange = "(?:[0-1]?[0-9]?[0-9]|2[0-4][0-9]|25[0-5])";
-    // QRegularExpression ipRegex("^" + ipRange+ "(\\." + ipRange + "){3}$");
-    // QRegularExpressionValidator *ipValidator = new QRegularExpressionValidator(ipRegex, this);
-
     ipportWidget = new QWidget();
     QGridLayout *ipPortGridLayout = new QGridLayout();
 
     QLabel *ipLabel = new QLabel("IP", this);
     QLabel *portLabel = new QLabel("Port", this);
-    QLabel *timelabel1 = new QLabel("Time(s)");
-    ipLineEdit = new QLineEdit("0.0.0.0");
+    QLabel *timelabel1 = new QLabel("Timer(s)");
+    ipLineEdit = new QLineEdit("127.0.0.1");
     ipLineEdit->setInputMask("000.000.000.000");
-    //ipLineEdit->setValidator(ipValidator);
     portLineEdit = new QLineEdit("8080");
     portLineEdit->setValidator(portValidator);
     tcpSpinBox = new QSpinBox();
@@ -86,18 +80,18 @@ MainWindow::MainWindow(QWidget *parent)
     ipPortGridLayout->addWidget(tcpSpinBox,1,2);
     ipportWidget->setLayout(ipPortGridLayout);
 
+
     serialWidget = new QWidget();
     QGridLayout *serialLayout = new QGridLayout();
 
     serialComboBox = new QComboBox();
     serialSpinBox = new QSpinBox();
-    serialSpinBox->setSuffix("s");
-    serialSpinBox->setRange(9,9);
+    serialSpinBox->setRange(3,15);
+    serialSpinBox->setMaximumWidth(55);
     QLabel *comBoxLabel = new QLabel("Serial Name");
     QLabel *comBoxLabe2 = new QLabel("BaudRate");
-    QLabel *timelabel = new QLabel("Timer");
+    QLabel *timelabel = new QLabel("Timer(s)");
     baudRateComboBox = new QComboBox();
-    baudRateComboBox->addItems({"9600", "19200", "38400", "57600", "115200"});
 
     serialLayout->addWidget(comBoxLabel,0,0);
     serialLayout->addWidget(comBoxLabe2,0,1);
@@ -142,34 +136,45 @@ MainWindow::MainWindow(QWidget *parent)
     setCentralWidget(mainWidget);
     setFixedSize(500, 480);
 
-    setting = new QSettings("/home/myuser/Repos/server/MyApp.ini",QSettings::IniFormat);
+    setting = new QSettings("/home/myuser/Repos/server/MyApp.ini",QSettings::IniFormat);             //Settings
     connect(tcpSpinBox,&QSpinBox::textChanged,this,&MainWindow::saveSetting);
+    connect(serialSpinBox,&QSpinBox::textChanged,this,&MainWindow::saveSetting);
     QString spinBoxSetting = setting->value("spinbox","").toString();
+    QString serialSpinBoxSetting = setting->value("serialSpinBox","").toString();
+
 
     tcpTimer = new QTimer(this);
     serialTimer = new QTimer(this);
+    serialTryTimer= new QTimer(this);
     tryTimer = new QTimer(this);
-    tryTimer->setInterval(spinBoxSetting.toInt()*1000);
+    tryTimer->setInterval(spinBoxSetting.toInt()*1000);                         //Try Timer Assigment
+    serialTryTimer->setInterval(serialSpinBoxSetting.toInt()*1000);
+    serialTryTimer = new QTimer();
+
+
     socket = new QTcpSocket(this);
     serialPortTest = new QSerialPort(this);
 
-    connect(tcpTimer, &QTimer::timeout, this, &MainWindow::sendNextLine);
+    connect(tcpTimer, &QTimer::timeout, this, &MainWindow::sendNextLine);                          //timer conncet
     connect(serialTimer, &QTimer::timeout, this, &MainWindow::sendNextLineSerial);
-    connect(tryTimer,&QTimer::timeout,this,&MainWindow::connectionLostSignal);
+    connect(tryTimer,&QTimer::timeout,this,&MainWindow::connectionLostSignal);              //بعد از تایم اوت برنامه به حالت کانکتیگ وارد میشود و تایمر متوقف میشود
+    connect(serialTryTimer,&QTimer::timeout,this ,&MainWindow::sendViaSerialPort);
 
-    connect(sendPushbutton, &QPushButton::clicked, this, &MainWindow::sendingData);
+
+    connect(sendPushbutton, &QPushButton::clicked, this, &MainWindow::sendingData);                   //Button Connect
     connect(SelectPushbutton, &QPushButton::clicked, this, &MainWindow::OpenFile);
     connect(stopPushButton, &QPushButton::clicked, this, &MainWindow::stopSerialPort);
 
-    connect(tcpCheckBox, &QCheckBox::clicked, this, &MainWindow::checkBoxes);
+    connect(tcpCheckBox, &QCheckBox::clicked, this, &MainWindow::checkBoxes);                          //CheckBox Connect
     connect(serialCheckBox, &QCheckBox::clicked, this, &MainWindow::checkBoxes);
 
     QString path = "/home/myuser/Desktop/Numbers.txt";
     readingFile(path);
     loadProts();
+    loadBaudRate();
 
-    machine = new QStateMachine(this);
 
+    machine = new QStateMachine(this);                                     //stateMachine
     stateDisconnect = new QState();
     stateConnecting = new QState();
     stateStopped = new QState();
@@ -196,6 +201,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(stateConnecting, &QState::entered, [this]() {   
         qDebug() << "state Connecting ...";
+        tryTimer->stop();
         socket->abort();
         socket->connectToHost(ipLineEdit->text(), portLineEdit->text().toUShort());
         emit  connectinonCheck();
@@ -294,7 +300,6 @@ void MainWindow::readingFile(const QString &filePath)
     mainFile.close();
 }
 
-
 void MainWindow::checkBoxes()
 {
     if(tcpCheckBox->isChecked())
@@ -334,8 +339,6 @@ void MainWindow::sendingData()
 
     if(serialCheckBox->isChecked())
     {
-        // emit connectionLostSignal();
-        // qDebug() << "Send via SerialPort";
         openPort();
         sendViaSerialPort();
         tcpTimer->stop();
@@ -345,9 +348,9 @@ void MainWindow::sendingData()
     {
         qDebug() << "Send via Tcp";
         emit connectingSignal();
-        serialTimer->stop();
     }
 }
+
 
 void MainWindow::sendNextLine()
 {
@@ -362,7 +365,7 @@ void MainWindow::sendNextLine()
         out.setVersion(QDataStream::Qt_5_13);
         out << currentData;
 
-        qDebug() << "Data:"  << currentData.h1 << currentData.h2 << currentData.h3 << currentData.h4 << currentData.h5 <<"Progres"<<currentData.progressBar;
+        qDebug() << "Data:"  << currentData.h1 << currentData.h2 << currentData.h3 << currentData.h4 << currentData.h5 ;
 
         statusLabel->setText(QString("Line %1: %2 %3 %4 %5 %6")
                                  .arg(currentLineIndex +1)
@@ -379,8 +382,8 @@ void MainWindow::sendNextLine()
         }
         else
         {
-            tcpTimer->stop();
             tryTimer->start();
+            tcpTimer->stop();
             statusLabel->setText("Try again in "+ QString::number(tcpSpinBox->value())+ " Second");
             return;
         }
@@ -405,21 +408,26 @@ void MainWindow::loadProts()
 {
     foreach (auto port, QSerialPortInfo::availablePorts())
     {
-        qDebug()<< port.portName();
         serialComboBox->addItem(port.portName());
+    }
+}
+
+void MainWindow::loadBaudRate()
+{
+    foreach(auto baudRate , QSerialPortInfo::standardBaudRates())
+    {
+        baudRateComboBox->addItem(QString::number(baudRate));
     }
 }
 
 
 void MainWindow::openPort()
 {
-
     if (serialPortTest !=nullptr )
     {
         serialPortTest->close();
         delete serialPortTest;
     }
-
     serialPortTest = new QSerialPort();
     serialPortTest->setPortName(serialComboBox->currentText());
     serialPortTest->setBaudRate(baudRateComboBox->currentText().toUInt());
@@ -435,33 +443,20 @@ void MainWindow::openPort()
     {
         QMessageBox::critical(this,"Warining","Port Can't be open");
     }
-
 }
 
 void MainWindow::sendViaSerialPort()
-{
-    if(tcpTimer->isActive())
-    {
-        tcpTimer->stop();
-        qDebug() << "TCP Timer Stopped";
-    }
-
+{  
+    serialTryTimer->stop();
     if(!serialPortTest->isOpen())
     {
         statusLabel->setText("Port is not Open");
         qDebug() << "Port is not Open";
         return;
     }
-
-    if (dataRows.isEmpty())
-    {
-        //QMessageBox::warning(this, "Warning", "Select a File First");
-        statusLabel->setText("No data loaded");
-        qDebug() << "No data loaded!";
-        return;
-    }
-
     serialTimer->start(2000);
+     qDebug() << "Serial Timer Start";
+
 }
 
 void MainWindow::sendNextLineSerial()
@@ -485,7 +480,12 @@ void MainWindow::sendNextLineSerial()
 
     serialPortTest->write(lineText.toUtf8());
 
-    if(!serialPortTest->waitForReadyRead(serialSpinBox->value()*1000))
+    if(serialPortTest->bytesAvailable())
+    {
+        QByteArray ack =serialPortTest->readAll();
+        QString readBuffer(ack);
+    }
+    else
     {
         stopSerialPort();
         return;
@@ -504,12 +504,13 @@ void MainWindow::stopSerialPort()
     serialPortTest->close();
     serialTimer->stop();
     statusLabel->setText("Sending Stopped");
-    qDebug() << "Sending Stopped";
+    qDebug() << "Sending Stopped (Serial)";
 }
 
 
 void MainWindow::saveSetting()
 {
     setting->setValue("spinbox",tcpSpinBox->text());
+    setting->setValue("serialSpinBox",serialSpinBox->text());
 }
 

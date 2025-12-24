@@ -46,6 +46,7 @@ signals:
     void notConnectedSignal();
     void connectingSignal();
 
+
 private:
     void OpenFile();
     void readingFile(const QString &filePath);
@@ -54,6 +55,7 @@ private:
     void checkConnection();
     void stopSendig();
     void loadProts();
+    void loadBaudRate();
     void openPort();
     void sendViaSerialPort();
     void sendNextLineSerial();
@@ -63,8 +65,6 @@ private:
     void checkBoxes();
     void saveSetting();
     void loadStting();
-
-
 
 
 
@@ -88,6 +88,7 @@ private:
     QTimer *tcpTimer ;
     QTimer *serialTimer;
     QTimer *tryTimer;
+    QTimer *serialTryTimer;
     int currentLineIndex = 0;
     QTcpSocket *socket;
     QSerialPort *serialPortTest;
