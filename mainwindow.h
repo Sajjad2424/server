@@ -39,12 +39,14 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
+    void setStateConnectingSerial(QState *newStateConnectingSerial);
+
 signals:
     void connectionLostSignal();
     void disConnectedSignal();
     void notDisConnectedSingal();
     void notConnectedSignal();
-    void connectingSignal();
+    void connectingTcpSignal();
 
 
 private:
@@ -65,7 +67,8 @@ private:
     void checkBoxes();
     void saveSetting();
     void loadStting();
-
+    void logFunction(const QString string);
+    void dataSender();
 
 
 private:
@@ -96,13 +99,17 @@ private:
     QList<dataStruct> dataRows;
 
     QStateMachine *machine;
-    QState *stateConnecting;
-    QState *stateDisconnect;
-    QState *stateStopped;
-    QState *stateConnected;
+    QState *stateDisconnectTcp;
+     QState *stateConnectingTcp;
+    QState *stateConnectedTcp;
+    QState *stateStoppedTcp;
+
+    QState *stateConnectingSerial;
+    QState *stateDisconnectSerial;
+    QState *stateStoppedSerial;
+    QState *stateConnectedSerial;
 
     QSettings *setting;
-
 
 
 };
