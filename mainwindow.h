@@ -27,7 +27,7 @@ struct dataStruct
     double h3;
     double h4;
     double h5;
-    // QVector<double> dataVector;
+    QVector<double> dataVector;
     int progressBar;
 };
 
@@ -39,15 +39,22 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
-    void setStateConnectingSerial(QState *newStateConnectingSerial);
+
 
 signals:
-    void connectionLostSignal();
-    void disConnectedSignal();
-    void notDisConnectedSingal();
-    void notConnectedSignal();
+    void connectionLostTcpSignal();    //TcpSignal
+    void disConnectedTcpSignal();
+    void notDisConnectedTcpSingal();
+    void notConnectedTcpSignal();
     void connectingTcpSignal();
 
+    void connectingSerialSignal();   //برای وارد شدن به استیت سریال
+    void connectedSerialSignal();
+    void notOpenedSerialSignal();
+    void connectionLostSerialSignal();
+    void cloeSerialSignal();
+    void notCloseSerialSignal();
+    void notConnectedSerialSignal();
 
 private:
     void OpenFile();
@@ -66,9 +73,9 @@ private:
     void disConnectCheck();
     void checkBoxes();
     void saveSetting();
-    void loadStting();
-    void logFunction(const QString string);
-    void dataSender();
+    void loadSetting();
+    void debugFunction(const QString string);
+    void serialCloseCheck();
 
 
 private:
@@ -100,13 +107,13 @@ private:
 
     QStateMachine *machine;
     QState *stateDisconnectTcp;
-     QState *stateConnectingTcp;
+    QState *stateConnectingTcp;
     QState *stateConnectedTcp;
     QState *stateStoppedTcp;
 
-    QState *stateConnectingSerial;
+    QState *stateOpeningSerial;
     QState *stateDisconnectSerial;
-    QState *stateStoppedSerial;
+    QState *stateCloseSerial;
     QState *stateConnectedSerial;
 
     QSettings *setting;

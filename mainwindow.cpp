@@ -26,7 +26,7 @@
 
 QDataStream &operator<<(QDataStream &out, const dataStruct &data)
 {
-    out << data.h1 << data.h2 << data.h3 << data.h4 << data.h5<<data.progressBar ;
+    out << data.h1 << data.h2 << data.h3 << data.h4 << data.h5 << data.dataVector << data.progressBar  ;
     return out;
 }
 
@@ -65,9 +65,9 @@ MainWindow::MainWindow(QWidget *parent)
     QLabel *ipLabel = new QLabel("IP", this);
     QLabel *portLabel = new QLabel("Port", this);
     QLabel *timelabel1 = new QLabel("Timer(s)");
-    ipLineEdit = new QLineEdit("127.0.0.1");
+    ipLineEdit = new QLineEdit();
     ipLineEdit->setInputMask("000.000.000.000");
-    portLineEdit = new QLineEdit("8080");
+    portLineEdit = new QLineEdit();
     portLineEdit->setValidator(portValidator);
     tcpSpinBox = new QSpinBox();
     tcpSpinBox->setValue(5);
@@ -137,19 +137,27 @@ MainWindow::MainWindow(QWidget *parent)
     setCentralWidget(mainWidget);
     setFixedSize(500, 480);
 
+
     setting = new QSettings("/home/myuser/Repos/server/MyApp.ini",QSettings::IniFormat);             //Settings
     connect(tcpSpinBox,&QSpinBox::textChanged,this,&MainWindow::saveSetting);
     connect(serialSpinBox,&QSpinBox::textChanged,this,&MainWindow::saveSetting);
-    QString spinBoxSetting = setting->value("spinbox","").toString();
-    QString serialSpinBoxSetting = setting->value("serialSpinBox","").toString();
+    connect(ipLineEdit,&QLineEdit::textChanged,this,&MainWindow::saveSetting);
+    connect(ipLineEdit,&QLineEdit::textChanged,this,&MainWindow::saveSetting);
+    connect(serialComboBox,&QComboBox::currentTextChanged,this,&MainWindow::saveSetting);
+    connect(baudRateComboBox, &QComboBox::currentTextChanged,this,&MainWindow::saveSetting);
 
 
-    tcpTimer = new QTimer(this);
+    loadSetting();
+    int spinBoxSetting = setting->value("spinbox","").toInt();
+    int serialSpinBoxSetting = setting->value("serialSpinBox","").toInt();
+
+
+    tcpTimer = new QTimer(this);                                     //Timers
     serialTimer = new QTimer(this);
     serialTryTimer= new QTimer(this);
     tryTimer = new QTimer(this);
-    tryTimer->setInterval(spinBoxSetting.toInt()*1000);                         //Try Timer Assigment
-    serialTryTimer->setInterval(serialSpinBoxSetting.toInt()*1000);
+    tryTimer->setInterval(spinBoxSetting*1000);                         //Try Timer Assigment
+    serialTryTimer->setInterval(serialSpinBoxSetting*1000);
     serialTryTimer = new QTimer();
 
 
@@ -158,13 +166,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(tcpTimer, &QTimer::timeout, this, &MainWindow::sendNextLine);                          //timer conncet
     connect(serialTimer, &QTimer::timeout, this, &MainWindow::sendNextLineSerial);
-    connect(tryTimer,&QTimer::timeout,this,&MainWindow::connectionLostSignal);              //بعد از تایم اوت برنامه به حالت کانکتیگ وارد میشود و تایمر متوقف میشود
-    connect(serialTryTimer,&QTimer::timeout,this ,&MainWindow::sendViaSerialPort);
+    connect(tryTimer,&QTimer::timeout,this,&MainWindow::connectionLostTcpSignal);              //بعد از تایم اوت برنامه به حالت کانکتیگ وارد میشود و تایمر متوقف میشود
+    connect(serialTryTimer,&QTimer::timeout,this ,&MainWindow::connectionLostSerialSignal);      //  فقط در حالت کانکتد دوباره تلاش میکند
 
 
     connect(sendPushbutton, &QPushButton::clicked, this, &MainWindow::sendingData);                   //Button Connect
     connect(SelectPushbutton, &QPushButton::clicked, this, &MainWindow::OpenFile);
-    connect(stopPushButton, &QPushButton::clicked, this, &MainWindow::stopSerialPort);
+    //connect(stopPushButton, &QPushButton::clicked, this, &MainWindow::stopSerialPort);
 
     connect(tcpCheckBox, &QCheckBox::clicked, this, &MainWindow::checkBoxes);                          //CheckBox Connect
     connect(serialCheckBox, &QCheckBox::clicked, this, &MainWindow::checkBoxes);
@@ -175,6 +183,7 @@ MainWindow::MainWindow(QWidget *parent)
     loadBaudRate();
 
 
+
     machine = new QStateMachine(this);
     //TcpState
     stateDisconnectTcp = new QState(machine);
@@ -182,33 +191,34 @@ MainWindow::MainWindow(QWidget *parent)
     stateStoppedTcp = new QState(machine);
     stateConnectedTcp = new QState(machine);
     //serialState
-    stateConnectingSerial = new QState(machine);
     stateDisconnectSerial = new QState(machine);
-    stateStoppedSerial = new QState(machine);
+    stateOpeningSerial = new QState(machine);
     stateConnectedSerial = new QState(machine);
+    stateCloseSerial = new QState(machine);
 
     machine->setInitialState(stateDisconnectTcp);
     machine->start();
 
     //بعد دکمه سند اگر چک باکس  تی سی پی  تیک خورده بود   //TCP_State
     stateDisconnectTcp->addTransition(this, &MainWindow::connectingTcpSignal, stateConnectingTcp);
+    stateDisconnectTcp->addTransition(this,&MainWindow::connectingSerialSignal,stateOpeningSerial);
     //StateConnecting
     stateConnectingTcp->addTransition(socket, &QTcpSocket::connected, stateConnectedTcp);
-    stateConnectingTcp->addTransition(this, &MainWindow::notConnectedSignal, stateDisconnectTcp);
+    stateConnectingTcp->addTransition(this, &MainWindow::notConnectedTcpSignal, stateDisconnectTcp);
     //stateConnected
     stateConnectedTcp->addTransition(stopPushButton, &QPushButton::clicked, stateStoppedTcp);
     stateConnectedTcp->addTransition(sendPushbutton,&QPushButton::clicked,stateConnectingTcp);
-    stateConnectedTcp->addTransition(this, &MainWindow::connectionLostSignal, stateConnectingTcp);
+    stateConnectedTcp->addTransition(this, &MainWindow::connectionLostTcpSignal, stateConnectingTcp);
     //StateStopped
-    stateStoppedTcp->addTransition(this, &MainWindow::disConnectedSignal, stateDisconnectTcp);
-    stateStoppedTcp->addTransition(this, &MainWindow::notDisConnectedSingal, stateConnectedTcp);
+    stateStoppedTcp->addTransition(this, &MainWindow::disConnectedTcpSignal, stateDisconnectTcp);
+    stateStoppedTcp->addTransition(this, &MainWindow::notDisConnectedTcpSingal, stateConnectedTcp);
 
     connect(stateDisconnectTcp, &QState::entered, [this]() {
         tcpTimer->stop();
         statusLabel->setText("State Disconnect");
         //qDebug() << "state Disconnect ";
         // QString a ="Sajjad";
-        logFunction("state Disconnect");
+        debugFunction("state Disconnect");
     });
 
     connect(stateConnectingTcp, &QState::entered, [this]() {
@@ -232,18 +242,40 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
 
-  //  Serial_State
+
+    //  Serial_State
+    stateDisconnectSerial->addTransition(sendPushbutton,&QPushButton::clicked, stateOpeningSerial);
+
+    stateOpeningSerial->addTransition(this,&MainWindow::connectedSerialSignal, stateConnectedSerial);
+    stateOpeningSerial->addTransition(this,&MainWindow::notOpenedSerialSignal ,stateDisconnectSerial);
+    stateOpeningSerial->addTransition(this,&MainWindow::notConnectedSerialSignal , stateDisconnectSerial);
+
+    stateConnectedSerial->addTransition(this,&MainWindow::connectionLostSerialSignal, stateOpeningSerial);
+    stateConnectedSerial->addTransition(stopPushButton,&QPushButton::clicked, stateCloseSerial);
+
+    stateCloseSerial->addTransition(this,&MainWindow::cloeSerialSignal, stateDisconnectSerial);
+    stateCloseSerial->addTransition(this,&MainWindow::notCloseSerialSignal, stateDisconnectSerial);
+
     connect(stateDisconnectSerial,&QState::entered,[this] () {
         serialTimer->stop();
-        logFunction("State Disconnect (serial)");
+        debugFunction("State Disconnect (serial)");
         statusLabel->setText("StateDisConnect (Serial)");
     });
 
-        connect(stateConnectedSerial,&QState::entered,[this] (){
-            logFunction("Stat Connecting");
-            openPort();
+    connect(stateOpeningSerial,&QState::entered,[this] (){
+        debugFunction("State Opening (Serial)");
+        serialTryTimer->stop();
+        openPort();
     });
 
+    connect(stateConnectedSerial,&QState::entered,[this] () {
+        debugFunction("State Connected (Serial)");
+    });
+
+    connect(stateCloseSerial,&QState::entered, [this] (){
+        serialPortTest->close();
+        serialCloseCheck();
+    });
 
 }
 
@@ -252,7 +284,7 @@ void MainWindow::connectinonCheck()
 {
     if (!socket->waitForConnected(2000))
     {
-        emit notConnectedSignal();   //تغیر به state DisConnecet
+        emit notConnectedTcpSignal();   //تغیر به state DisConnecet
         return;
     }
 }
@@ -262,14 +294,25 @@ void MainWindow::disConnectCheck()
     // اطمینان از قطع شدن اتصال در stateStopped
     if (socket->state() == QAbstractSocket::UnconnectedState)
     {
-        emit disConnectedSignal();
+        emit disConnectedTcpSignal();
     }
     else
     {
-        notDisConnectedSingal();
+        emit notDisConnectedTcpSingal();
     }
 }
 
+void MainWindow::serialCloseCheck()
+{
+    if(!serialPortTest->isOpen())
+    {
+        emit cloeSerialSignal();
+    }
+    else
+    {
+        emit notCloseSerialSignal();
+    }
+}
 
 void MainWindow::OpenFile()
 {
@@ -357,28 +400,29 @@ void MainWindow::sendingData()
 
     if(serialCheckBox->isChecked())
     {
-        openPort();
-        sendViaSerialPort();
+        // openPort();
+        //sendViaSerialPort();
         tcpTimer->stop();
-
+        emit connectingSerialSignal();
+        //  return;
 
     }
-    if(tcpCheckBox->isChecked())
+    else  if(tcpCheckBox->isChecked())
     {
         qDebug() << "Send via Tcp";
         emit connectingTcpSignal();
     }
-}
 
+}
 
 void MainWindow::sendNextLine()
 {
-    // int progress = ((currentLineIndex + 1) * 100 ) / dataRows.size();
+    int progress = ((currentLineIndex + 1) * 100 ) / dataRows.size();
 
     if (currentLineIndex < dataRows.size())
     {
         dataStruct &currentData = dataRows[currentLineIndex];
-        //    currentData.progressBar=progress;
+        currentData.progressBar=progress;
 
         QDataStream out(socket);
         out.setVersion(QDataStream::Qt_5_13);
@@ -457,25 +501,27 @@ void MainWindow::openPort()
     if(serialPortTest->open(QIODevice::ReadWrite))
     {
         statusLabel->setText("Port is open");
+        serialTimer->start(2000);
     }
     else
     {
+        notOpenedSerialSignal();
         QMessageBox::critical(this,"Warining","Port Can't be open");
     }
 }
 
+
+
 void MainWindow::sendViaSerialPort()
 {
-    serialTryTimer->stop();
-    if(!serialPortTest->isOpen())
-    {
-        statusLabel->setText("Port is not Open");
-        qDebug() << "Port is not Open";
-        return;
-    }
-    serialTimer->start(2000);
-    qDebug() << "Serial Timer Start";
-
+    //    // serialTryTimer->stop();
+    //     if(!serialPortTest->isOpen())
+    //     {
+    //         statusLabel->setText("Port is not Open");
+    //         qDebug() << "Port is not Open";
+    //         return;
+    //     }
+    //     qDebug() << "Serial Timer Start";
 }
 
 void MainWindow::sendNextLineSerial()
@@ -499,44 +545,74 @@ void MainWindow::sendNextLineSerial()
 
     serialPortTest->write(lineText.toUtf8());
 
+    qDebug() << "Sending line:" << currentLineIndex +1 << "Data:"
+             << currentData.h1 << currentData.h2 << currentData.h3 << currentData.h4 << currentData.h5;
+
     if(serialPortTest->bytesAvailable())
     {
         QByteArray ack =serialPortTest->readAll();
         QString readBuffer(ack);
+        emit connectedSerialSignal();
     }
     else
     {
-        stopSerialPort();
+        emit notConnectedSerialSignal();
+        serialTryTimer->start();
+        serialTimer->stop();
+        //stopSerialPort();
         return;
     }
 
-    //  qDebug() << "Sending line:" << currentLineIndex +1 << "Data:"
-    //            << currentData.h1 << currentData.h2 << currentData.h3 << currentData.h4 << currentData.h5;
+
     statusLabel->setText(QString("Serial Line %1: %2").arg(currentLineIndex + 1).arg(lineText));
     currentLineIndex++;
     return;
 }
 
 
-void MainWindow::stopSerialPort()
-{
-    serialPortTest->close();
-    serialTimer->stop();
-    statusLabel->setText("Sending Stopped");
-    qDebug() << "Sending Stopped (Serial)";
-}
+// void MainWindow::stopSerialPort()
+// {
+//     serialPortTest->close();
+//     serialTimer->stop();
+//     statusLabel->setText("Sending Stopped");
+//     qDebug() << "Sending Stopped (Serial)";
+// }
 
 
 void MainWindow::saveSetting()
 {
     setting->setValue("spinbox",tcpSpinBox->text());
     setting->setValue("serialSpinBox",serialSpinBox->text());
+    setting->setValue("ip",ipLineEdit->text());
+    setting->setValue("port",portLineEdit->text());
+    setting->setValue("baudRate",baudRateComboBox->currentIndex());
+    setting->setValue("SerialName",serialComboBox->currentIndex());
 }
 
-void MainWindow::logFunction(const QString string)
+void MainWindow::loadSetting()
+{
+
+    int spinBoxSetting = setting->value("spinbox","").toInt();
+    tcpSpinBox->setValue(spinBoxSetting);
+    int serialSpinBoxSetting = setting->value("serialSpinBox","").toInt();
+    serialSpinBox->setValue(serialSpinBoxSetting);
+    QString ip = setting->value("ip","").toString();
+    ipLineEdit->setText(ip);
+    QString port = setting->value("port","").toString();
+    portLineEdit->setText(port);
+    int baudRate = setting->value("baudRate","").toInt();
+    baudRateComboBox->setCurrentIndex(baudRate);
+    int serialName = setting->value("SerialName","").toInt();
+    serialComboBox->setCurrentIndex(serialName);
+}
+
+
+
+void MainWindow::debugFunction(const QString string)
 {
     qDebug() << string;
-
 }
+
+
 
 
